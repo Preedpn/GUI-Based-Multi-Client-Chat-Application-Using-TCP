@@ -7,10 +7,10 @@ import sys
 SERVER_IP = '10.0.0.1'
 SERVER_PORT = 5000
 
-class ChatClientGUI:
+class SecureChatClientGUI:
     def __init__(self, root):
         self.root = root
-        self.root.title("TCP Chat Application")
+        self.root.title("Secure TCP Chat Application")
         self.root.geometry("600x500")
         
         self.client_socket = None
@@ -26,10 +26,10 @@ class ChatClientGUI:
         self.login_frame.pack(fill=tk.BOTH, expand=True)
 
     def build_login_frame(self):
-        """Creates the Login Window UI"""
-        self.login_frame = tk.Frame(self.root, pady=100)
+        """Creates the Login Window UI with Password Protection"""
+        self.login_frame = tk.Frame(self.root, pady=80)
         
-        lbl_title = tk.Label(self.login_frame, text="Welcome to Chat", font=("Arial", 18, "bold"))
+        lbl_title = tk.Label(self.login_frame, text="Secure Chat Login", font=("Arial", 18, "bold"))
         lbl_title.pack(pady=10)
         
         lbl_user = tk.Label(self.login_frame, text="Username:")
@@ -37,40 +37,40 @@ class ChatClientGUI:
         self.entry_username = tk.Entry(self.login_frame, font=("Arial", 12))
         self.entry_username.pack(pady=5)
         
-        # Connect Button triggers the network connection
-        btn_connect = tk.Button(self.login_frame, text="Connect", command=self.connect_server, bg="#4CAF50", fg="white", width=15)
+        lbl_pass = tk.Label(self.login_frame, text="Password:")
+        lbl_pass.pack()
+        # show="*" masks the password input
+        self.entry_password = tk.Entry(self.login_frame, font=("Arial", 12), show="*") 
+        self.entry_password.pack(pady=5)
+        
+        btn_connect = tk.Button(self.login_frame, text="Secure Login", command=self.connect_server, bg="#4CAF50", fg="white", width=15)
         btn_connect.pack(pady=20)
 
     def build_chat_frame(self):
         """Creates the Main Chat Window UI"""
         self.chat_frame = tk.Frame(self.root)
         
-        # Top Status Bar
         self.lbl_status = tk.Label(self.chat_frame, text="Not Connected", fg="red", font=("Arial", 10, "italic"))
         self.lbl_status.pack(side=tk.TOP, fill=tk.X)
         
-        # Split the screen into Left (Chat) and Right (Users)
         main_pane = tk.PanedWindow(self.chat_frame, orient=tk.HORIZONTAL)
         main_pane.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
-        # Left side: Scrollable Chat history
         left_frame = tk.Frame(main_pane)
         self.text_area = scrolledtext.ScrolledText(left_frame, wrap=tk.WORD, state=tk.DISABLED)
         self.text_area.pack(fill=tk.BOTH, expand=True)
         main_pane.add(left_frame, width=420)
         
-        # Right side: Online users listbox
         right_frame = tk.Frame(main_pane)
         lbl_users = tk.Label(right_frame, text="Online Users:")
         lbl_users.pack()
         self.listbox_users = tk.Listbox(right_frame)
         self.listbox_users.pack(fill=tk.BOTH, expand=True)
         
-        btn_disconnect = tk.Button(right_frame, text="Disconnect", command=self.disconnect, bg="#f44336", fg="white")
+        btn_disconnect = tk.Button(right_frame, text="Logout", command=self.disconnect, bg="#f44336", fg="white")
         btn_disconnect.pack(fill=tk.X, pady=5)
         main_pane.add(right_frame)
         
-        # Bottom area: Message input
         bottom_frame = tk.Frame(self.chat_frame)
         bottom_frame.pack(fill=tk.X, side=tk.BOTTOM, padx=5, pady=5)
         
@@ -79,7 +79,6 @@ class ChatClientGUI:
         
         self.entry_msg = tk.Entry(bottom_frame, font=("Arial", 12))
         self.entry_msg.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
-        # Bind the 'Enter' key on keyboard to send message
         self.entry_msg.bind("<Return>", lambda event: self.send_message()) 
         
         btn_send = tk.Button(bottom_frame, text="Send", command=self.send_message, bg="#2196F3", fg="white")
@@ -92,54 +91,70 @@ class ChatClientGUI:
         """Safely inserts text into the chat history"""
         self.text_area.config(state=tk.NORMAL)
         self.text_area.insert(tk.END, message + "\n")
-        self.text_area.see(tk.END) # Auto-scroll to bottom
+        self.text_area.see(tk.END)
         self.text_area.config(state=tk.DISABLED)
 
     def connect_server(self):
-        """Triggered by Login button. Establishes TCP connection."""
+        """Handles the Secure Authentication Handshake"""
         user = self.entry_username.get().strip()
-        if not user:
-            messagebox.showerror("Error", "Username cannot be empty!")
+        password = self.entry_password.get().strip()
+        
+        # Client-side input validation
+        if not user or not password:
+            messagebox.showerror("Validation Error", "Username and Password cannot be empty!")
             return
             
-        self.username = user
-        
         try:
             self.client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.client_socket.connect((SERVER_IP, SERVER_PORT))
             
-            # Receive server prompt and send username
-            self.client_socket.recv(1024)
-            self.client_socket.send(self.username.encode('utf-8'))
-            self.running = True
-            
-            # Switch GUI from Login to Chat
-            self.login_frame.pack_forget()
-            self.chat_frame.pack(fill=tk.BOTH, expand=True)
-            self.lbl_status.config(text=f"Connected to Server as '{self.username}'", fg="green")
-            
-            # START THE BACKGROUND THREAD
-            receive_thread = threading.Thread(target=self.receive_messages)
-            receive_thread.daemon = True
-            receive_thread.start()
-            
+            # Wait for server to request authentication
+            req = self.client_socket.recv(1024).decode('utf-8')
+            if req == "AUTH_REQ":
+                # Send credentials
+                auth_payload = f"/auth {user} {password}"
+                self.client_socket.send(auth_payload.encode('utf-8'))
+                
+                # Await server judgment
+                resp = self.client_socket.recv(1024).decode('utf-8')
+                
+                if resp == "AUTH_SUCCESS":
+                    self.username = user
+                    self.running = True
+                    
+                    self.login_frame.pack_forget()
+                    self.chat_frame.pack(fill=tk.BOTH, expand=True)
+                    self.lbl_status.config(text=f"Securely Connected as '{self.username}'", fg="green")
+                    
+                    receive_thread = threading.Thread(target=self.receive_messages)
+                    receive_thread.daemon = True
+                    receive_thread.start()
+                    
+                elif resp == "DUPLICATE_ERROR":
+                    messagebox.showerror("Security Alert", "This user is already logged in!")
+                    self.client_socket.close()
+                elif resp.startswith("AUTH_FAIL|"):
+                    msg = resp.split('|')[1]
+                    messagebox.showerror("Authentication Failed", msg)
+                    self.client_socket.close()
+                else:
+                    messagebox.showerror("Validation Error", resp)
+                    self.client_socket.close()
+                    
         except Exception as e:
             messagebox.showerror("Connection Error", f"Could not connect to server.\n{e}")
 
     def receive_messages(self):
-        """Background thread function that listens to the network."""
+        """Listens for incoming data or forced timeouts."""
         while self.running:
             try:
                 message = self.client_socket.recv(1024).decode('utf-8')
                 if not message:
                     break
                 
-                # Check if this is the hidden list command from our updated server
                 if message.startswith("/USERLIST"):
                     users_str = message.split(" ", 1)[1].strip()
                     user_list = users_str.split(",") if users_str else []
-                    
-                    # Schedule GUI update safely in the main thread
                     self.root.after(0, self.update_user_list, user_list)
                 else:
                     self.root.after(0, self.display_message, message.strip())
@@ -151,7 +166,6 @@ class ChatClientGUI:
             self.root.after(0, self.handle_server_disconnect)
 
     def update_user_list(self, user_list):
-        """Refreshes the online users sidebar."""
         self.listbox_users.delete(0, tk.END)
         for user in user_list:
             if user == self.username:
@@ -160,12 +174,12 @@ class ChatClientGUI:
                 self.listbox_users.insert(tk.END, user)
 
     def handle_server_disconnect(self):
-        self.display_message("[!] Lost connection to server.")
+        self.display_message("[!] Secure session terminated.")
         self.lbl_status.config(text="Disconnected", fg="red")
         self.running = False
+        self.listbox_users.delete(0, tk.END) # Clear users list
 
     def prepare_private_msg(self):
-        """Helper to format a private message based on listbox selection."""
         selected = self.listbox_users.curselection()
         if not selected:
             messagebox.showinfo("Private Message", "Select a user from the Online Users list first!")
@@ -176,28 +190,27 @@ class ChatClientGUI:
             messagebox.showwarning("Warning", "You cannot private message yourself.")
             return
             
-        # Autofill the input box with the /msg command
         self.entry_msg.delete(0, tk.END)
         self.entry_msg.insert(0, f"/msg {target} ")
         self.entry_msg.focus()
 
     def send_message(self):
-        """Sends data to server. Triggered by Send button or Enter key."""
         msg = self.entry_msg.get().strip()
         if msg and self.running:
+            if len(msg) > 500:
+                messagebox.showwarning("Warning", "Message exceeds 500 character limit.")
+                return
+
             try:
                 self.client_socket.send(msg.encode('utf-8'))
                 self.entry_msg.delete(0, tk.END)
                 
-                # Because the server doesn't echo broadcasts back to the sender,
-                # we must print our own broadcast locally so we can see it.
                 if not msg.startswith("/msg ") and not msg == "/list":
                     self.display_message(f"[You]: {msg}")
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to send message: {e}")
 
     def disconnect(self):
-        """Cleans up sockets and destroys the window."""
         self.running = False
         if self.client_socket:
             try:
@@ -207,9 +220,7 @@ class ChatClientGUI:
         self.root.quit()
 
 if __name__ == "__main__":
-    # Create the main Tkinter window
     root = tk.Tk()
-    app = ChatClientGUI(root)
-    # Ensure background threads die if the user clicks the 'X' button
+    app = SecureChatClientGUI(root)
     root.protocol("WM_DELETE_WINDOW", app.disconnect)
     root.mainloop()
